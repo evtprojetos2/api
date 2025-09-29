@@ -4,7 +4,7 @@ from unidecode import unidecode
 from functools import wraps
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature 
 import time
-from urllib.parse import unquote # <--- IMPORTANTE: Importação da função de decodificação URL
+from urllib.parse import unquote 
 
 # --- Variáveis Globais de Segurança e Configuração ---
 
@@ -131,28 +131,20 @@ def get_content_by_title(titulo_busca):
     """
     Busca e retorna detalhes do conteúdo pelo título, REMOVENDO os links de mídia.
     """
-    # NOVO: 1. Decodifica a URL para tratar %C3%A7 em 'ç'
     titulo_busca_decoded = unquote(titulo_busca)
-    
-    # 2. Normaliza para minúsculas, sem acentos e substitui '+' por espaço
     termo_busca_normalizado = unidecode(titulo_busca_decoded).strip().lower().replace('+', ' ')
     
     resultados = []
     for i, filme in enumerate(FILMES):
         titulo_filme_normalizado = unidecode(filme.get('titulo', '')).strip().lower()
 
-        # Checa se o termo de busca está contido no título do filme
         if termo_busca_normalizado in titulo_filme_normalizado:
-            # 1. Filtra as chaves sensíveis
             filme_filtrado = filter_movie_data(filme)
-            
-            # 2. Adiciona o ID para a rota /player
             filme_filtrado['filme_id'] = i 
             
             resultados.append(filme_filtrado)
 
     if not resultados:
-        # A LINHA DE DEBUG AGORA DEVE MOSTRAR O VALOR CORRETO (ex: premonicao 6)
         return jsonify({
             "mensagem": f"Nenhum conteúdo encontrado para o título: {titulo_busca}",
             "termo_normalizado_usado": termo_busca_normalizado, 
@@ -169,7 +161,6 @@ def generate_player_link_by_title(titulo_busca):
     """
     Busca o filme pelo título e gera o link temporário de 4 horas para o player.
     """
-    # NOVO: 1. Decodifica a URL para garantir que o termo de busca é limpo
     titulo_busca_decoded = unquote(titulo_busca)
     termo_busca_normalizado = unidecode(titulo_busca_decoded).strip().lower().replace('+', ' ')
     
@@ -194,13 +185,16 @@ def generate_player_link_by_title(titulo_busca):
     payload = url_sensivel
     temp_token = signer.dumps(payload)
     
-    # Constrói o link temporário que aponta para o seu proxy
-    link_temporario = f"/player_proxy/{filme_id}?temp_token={temp_token}"
+    # CONSTRUÇÃO DO LINK ABSOLUTO CORRIGIDA AQUI:
+    # request.url_root fornece a URL base completa (ex: https://api-xi-peach.vercel.app/)
+    # rstrip('/') remove a barra final para evitar barras duplas
+    base_url = request.url_root.rstrip('/')
+    link_temporario = f"{base_url}/player_proxy/{filme_id}?temp_token={temp_token}"
     
     return jsonify({
         "status": "sucesso",
         "filme": filme_encontrado['titulo'],
-        "link_temporario": link_temporario, 
+        "link_temporario": link_temporario, # AGORA É A URL COMPLETA
         "expira_em_segundos": TEMPO_EXPIRACAO_LINK
     })
     
