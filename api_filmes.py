@@ -130,12 +130,14 @@ def get_content_by_title(titulo_busca):
     """
     Busca e retorna detalhes do conteúdo pelo título, REMOVENDO os links de mídia.
     """
+    # Normaliza o termo de busca para minúsculas, sem acentos e substitui '+' por espaço
     termo_busca_normalizado = unidecode(titulo_busca).strip().lower().replace('+', ' ')
     
     resultados = []
     for i, filme in enumerate(FILMES):
         titulo_filme_normalizado = unidecode(filme.get('titulo', '')).strip().lower()
 
+        # Checa se o termo de busca está contido no título do filme
         if termo_busca_normalizado in titulo_filme_normalizado:
             # 1. Filtra as chaves sensíveis
             filme_filtrado = filter_movie_data(filme)
@@ -146,7 +148,12 @@ def get_content_by_title(titulo_busca):
             resultados.append(filme_filtrado)
 
     if not resultados:
-        return jsonify({"mensagem": f"Nenhum conteúdo encontrado para o título: {titulo_busca}", "filmes": []}), 404
+        # INCLUSÃO DA LINHA DE DEBUG:
+        return jsonify({
+            "mensagem": f"Nenhum conteúdo encontrado para o título: {titulo_busca}",
+            "termo_normalizado_usado": termo_busca_normalizado, 
+            "filmes": []
+        }), 404
         
     return jsonify({"titulo_pesquisado": titulo_busca, "total_encontrado": len(resultados), "filmes": resultados})
 
