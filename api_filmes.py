@@ -9,14 +9,12 @@ import time
 
 app = Flask(__name__) 
 
-# 1. TEMPO DE EXPIRAÇÃO DO LINK: 4 horas = 4 * 3600 = 14400 segundos
+# TEMPO DE EXPIRAÇÃO DO LINK: 4 horas = 4 * 3600 = 14400 segundos
 TEMPO_EXPIRACAO_LINK = 14400 
 
-# CHAVE SECRETA para assinar/validar links temporários. 
-# EM PRODUÇÃO, use Variáveis de Ambiente do Vercel!
+# CHAVE SECRETA para assinar/validar links temporários. Mude este valor!
 SECRET_KEY_ASSINATURA = "sua_chave_secreta_para_assinatura_de_links_XYZ"
 
-# Inicializa o serializador
 signer = URLSafeTimedSerializer(SECRET_KEY_ASSINATURA, salt='media-access-salt')
 
 # Defina o caractere que separa os gêneros no seu 'filmes_capturados.json'
@@ -51,9 +49,7 @@ def load_tokens():
 def filter_movie_data(movie: dict) -> dict:
     """
     Remove chaves sensíveis/internas do objeto do filme antes de retornar na rota de detalhes.
-    Estas chaves só devem ser acessíveis via link temporário.
     """
-    # Chaves a serem removidas da resposta pública
     EXCLUDE_KEYS = ['url_player_pagina', 'url_filme', 'url_m3u8_ou_mp4']
     
     filtered_movie = movie.copy()
@@ -88,7 +84,45 @@ def require_api_token(f):
             
     return decorated
 
-# --- ROTAS DE BUSCA POR TÍTULO (Detalhamento) ---
+# --- ROTAS DE LISTAGEM E CATEGORIAS (PROTEGIDAS) ---
+
+@app.route('/', methods=['GET'])
+@require_api_token
+def get_all_content():
+    return jsonify({
+        "total_filmes": len(FILMES),
+        "filmes": [filter_movie_data(f) for f in FILMES]
+    })
+
+@app.route('/categorias', methods=['GET'])
+@require_api_token
+def get_all_categories():
+    return jsonify({
+        "total_categorias": len(CATEGORIAS_COMPLETAS),
+        "categorias": CATEGORIAS_COMPLETAS
+    })
+    
+@app.route('/<string:categoria_ou_genero>', methods=['GET'])
+@require_api_token
+def get_content_by_category(categoria_ou_genero):
+    termo_normalizado = unidecode(categoria_ou_genero).strip().lower()
+    resultados = []
+    for i, filme in enumerate(FILMES):
+        generos_filme = filme.get('generos', '')
+        generos_norm_filme = [unidecode(g).strip().lower() for g in generos_filme.split(SPLIT_CHAR)]
+        
+        if termo_normalizado in generos_norm_filme:
+            filme_filtrado = filter_movie_data(filme)
+            filme_filtrado['filme_id'] = i
+            resultados.append(filme_filtrado)
+
+    if not resultados:
+        return jsonify({"mensagem": f"Nenhum conteúdo encontrado para: {categoria_ou_genero}","filmes": []}), 404
+        
+    return jsonify({"categoria_pesquisada": categoria_ou_genero, "total_encontrado": len(resultados), "filmes": resultados})
+
+
+# --- ROTAS DE BUSCA POR TÍTULO ---
 
 @app.route('/titulo/<string:titulo_busca>', methods=['GET'])
 @require_api_token
@@ -103,25 +137,18 @@ def get_content_by_title(titulo_busca):
         titulo_filme_normalizado = unidecode(filme.get('titulo', '')).strip().lower()
 
         if termo_busca_normalizado in titulo_filme_normalizado:
-            # 1. Filtra as chaves sensíveis (url_m3u8_ou_mp4, url_filme, url_player_pagina)
+            # 1. Filtra as chaves sensíveis
             filme_filtrado = filter_movie_data(filme)
             
-            # 2. Adiciona o ID (para que o cliente possa chamar a rota /player)
+            # 2. Adiciona o ID para a rota /player
             filme_filtrado['filme_id'] = i 
             
             resultados.append(filme_filtrado)
 
     if not resultados:
-        return jsonify({
-            "mensagem": f"Nenhum conteúdo encontrado para o título: {titulo_busca}",
-            "filmes": []
-        }), 404
+        return jsonify({"mensagem": f"Nenhum conteúdo encontrado para o título: {titulo_busca}", "filmes": []}), 404
         
-    return jsonify({
-        "titulo_pesquisado": titulo_busca,
-        "total_encontrado": len(resultados),
-        "filmes": resultados
-    })
+    return jsonify({"titulo_pesquisado": titulo_busca, "total_encontrado": len(resultados), "filmes": resultados})
 
 # --- ROTA DE PLAYER POR TÍTULO (Geração do Token Temporário) ---
 
@@ -129,15 +156,13 @@ def get_content_by_title(titulo_busca):
 @require_api_token
 def generate_player_link_by_title(titulo_busca):
     """
-    Busca o filme pelo título e gera o link temporário para o player.
-    O token tem validade de 4 horas.
+    Busca o filme pelo título e gera o link temporário de 4 horas para o player.
     """
     termo_busca_normalizado = unidecode(titulo_busca).strip().lower().replace('+', ' ')
     
     filme_encontrado = None
     filme_id = -1
     
-    # Localiza o filme
     for i, filme in enumerate(FILMES):
         titulo_filme_normalizado = unidecode(filme.get('titulo', '')).strip().lower()
         if termo_busca_normalizado in titulo_filme_normalizado:
@@ -148,7 +173,6 @@ def generate_player_link_by_title(titulo_busca):
     if not filme_encontrado:
         return jsonify({"erro": f"Filme com título '{titulo_busca}' não encontrado."}), 404
 
-    # Pega o link sensível que queremos proteger (o único que aparece agora)
     url_sensivel = filme_encontrado.get('url_m3u8_ou_mp4')
     if not url_sensivel:
         return jsonify({"erro": f"Filme '{filme_encontrado['titulo']}' não possui URL de mídia (url_m3u8_ou_mp4)."}), 500
@@ -172,17 +196,17 @@ def generate_player_link_by_title(titulo_busca):
 @app.route('/player_proxy/<int:filme_id>', methods=['GET'])
 def player_proxy(filme_id):
     """
-    Verifica o token temporário usando a expiração de 4 horas e redireciona.
+    Verifica o token temporário (4 horas) e, se for válido, redireciona para a URL de mídia real.
     """
     temp_token = request.args.get('temp_token')
     if not temp_token:
         return jsonify({"erro": "Acesso negado. Token temporário ausente."}), 401
         
     try:
-        # Tenta carregar (validar) o token. O max_age=14400s (4 horas) garante a expiração.
+        # Valida o token e verifica se ele expirou (max_age=14400s)
         url_original = signer.loads(temp_token, max_age=TEMPO_EXPIRACAO_LINK)
 
-        # Verificação extra de segurança (se o ID corresponde ao token)
+        # Verificação de segurança: Checa se o ID do filme bate com a URL original
         try:
              filme_real = FILMES[filme_id]
              if url_original != filme_real.get('url_m3u8_ou_mp4'):
@@ -190,16 +214,12 @@ def player_proxy(filme_id):
         except IndexError:
              return jsonify({"erro": "ID de filme no proxy inválido."}), 404
 
-        # Se for válido, redireciona o cliente (player) para a URL real
+        # Redireciona o cliente para a URL real do M3U8/MP4
         return redirect(url_original, code=302)
 
     except SignatureExpired:
-        return jsonify({"erro": "Acesso negado. O link expirou."}), 401
+        return jsonify({"erro": "Acesso negado. O link expirou (4 horas)."}), 401
     except BadTimeSignature:
         return jsonify({"erro": "Acesso negado. O token é inválido ou foi adulterado."}), 401
     except Exception as e:
         return jsonify({"erro": f"Erro interno ao validar o link: {str(e)}"}), 500
-
-
-# --- ROTAS DE LISTAGEM GERAL (MANTIDAS POR COMPLETO) ---
-# ... (MANTENHA AQUI AS ROTAS / e /categorias)
