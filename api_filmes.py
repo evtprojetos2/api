@@ -1,10 +1,11 @@
 import json
-from flask import Flask, jsonify, request, redirect
+from flask import Flask, jsonify, request, redirect, Response # 'Response' é novo
 from unidecode import unidecode
 from functools import wraps
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature 
 import time
 from urllib.parse import unquote 
+import requests # <--- IMPORTANTE: Usado para o Proxy de Conteúdo
 
 # --- Variáveis Globais de Segurança e Configuração ---
 
@@ -85,44 +86,6 @@ def require_api_token(f):
             
     return decorated
 
-# --- ROTAS DE LISTAGEM E CATEGORIAS (PROTEGIDAS) ---
-
-@app.route('/', methods=['GET'])
-@require_api_token
-def get_all_content():
-    return jsonify({
-        "total_filmes": len(FILMES),
-        "filmes": [filter_movie_data(f) for f in FILMES]
-    })
-
-@app.route('/categorias', methods=['GET'])
-@require_api_token
-def get_all_categories():
-    return jsonify({
-        "total_categorias": len(CATEGORIAS_COMPLETAS),
-        "categorias": CATEGORIAS_COMPLETAS
-    })
-    
-@app.route('/<string:categoria_ou_genero>', methods=['GET'])
-@require_api_token
-def get_content_by_category(categoria_ou_genero):
-    termo_normalizado = unidecode(categoria_ou_genero).strip().lower()
-    resultados = []
-    for i, filme in enumerate(FILMES):
-        generos_filme = filme.get('generos', '')
-        generos_norm_filme = [unidecode(g).strip().lower() for g in generos_filme.split(SPLIT_CHAR)]
-        
-        if termo_normalizado in generos_norm_filme:
-            filme_filtrado = filter_movie_data(filme)
-            filme_filtrado['filme_id'] = i
-            resultados.append(filme_filtrado)
-
-    if not resultados:
-        return jsonify({"mensagem": f"Nenhum conteúdo encontrado para: {categoria_ou_genero}","filmes": []}), 404
-        
-    return jsonify({"categoria_pesquisada": categoria_ou_genero, "total_encontrado": len(resultados), "filmes": resultados})
-
-
 # --- ROTAS DE BUSCA POR TÍTULO ---
 
 @app.route('/titulo/<string:titulo_busca>', methods=['GET'])
@@ -160,6 +123,7 @@ def get_content_by_title(titulo_busca):
 def generate_player_link_by_title(titulo_busca):
     """
     Busca o filme pelo título e gera o link temporário de 4 horas para o player.
+    Retorna a URL completa e mascarada.
     """
     titulo_busca_decoded = unquote(titulo_busca)
     termo_busca_normalizado = unidecode(titulo_busca_decoded).strip().lower().replace('+', ' ')
@@ -185,32 +149,30 @@ def generate_player_link_by_title(titulo_busca):
     payload = url_sensivel
     temp_token = signer.dumps(payload)
     
-    # CONSTRUÇÃO DO LINK ABSOLUTO CORRIGIDA AQUI:
-    # request.url_root fornece a URL base completa (ex: https://api-xi-peach.vercel.app/)
-    # rstrip('/') remove a barra final para evitar barras duplas
+    # Constrói o link ABSOLUTO e completo
     base_url = request.url_root.rstrip('/')
     link_temporario = f"{base_url}/player_proxy/{filme_id}?temp_token={temp_token}"
     
     return jsonify({
         "status": "sucesso",
         "filme": filme_encontrado['titulo'],
-        "link_temporario": link_temporario, # AGORA É A URL COMPLETA
+        "link_temporario": link_temporario, # URL COMPLETA
         "expira_em_segundos": TEMPO_EXPIRACAO_LINK
     })
     
-# --- ROTA DE PROXY (Validação e Redirecionamento) ---
+# --- ROTA DE PROXY (Validação e Entrega de Conteúdo) ---
 
 @app.route('/player_proxy/<int:filme_id>', methods=['GET'])
 def player_proxy(filme_id):
     """
-    Verifica o token temporário (4 horas) e, se for válido, redireciona para a URL de mídia real.
+    Valida o token temporário, atua como proxy e serve o stream de mídia.
     """
     temp_token = request.args.get('temp_token')
     if not temp_token:
         return jsonify({"erro": "Acesso negado. Token temporário ausente."}), 401
         
     try:
-        # Valida o token e verifica se ele expirou (max_age=14400s)
+        # 1. Validação do Token (a lógica de 4 horas é mantida)
         url_original = signer.loads(temp_token, max_age=TEMPO_EXPIRACAO_LINK)
 
         # Verificação de segurança: Checa se o ID do filme bate com a URL original
@@ -220,13 +182,54 @@ def player_proxy(filme_id):
                  return jsonify({"erro": "Token válido, mas ID do filme incorreto."}), 401
         except IndexError:
              return jsonify({"erro": "ID de filme no proxy inválido."}), 404
-
-        # Redireciona o cliente para a URL real do M3U8/MP4
-        return redirect(url_original, code=302)
+             
+        # 2. Atuar como Proxy (Busca e Entrega)
+        
+        # Copia cabeçalhos do cliente (ex: Range para streaming)
+        headers = {key: value for (key, value) in request.headers if key != 'Host'}
+        
+        # Faz a requisição para a URL de mídia real
+        resp = requests.request(
+            method=request.method,
+            url=url_original,
+            headers=headers,
+            data=request.get_data(),
+            stream=True, # IMPORTANTE: Para streaming eficiente
+            allow_redirects=False
+        )
+        
+        # 3. Retorna o Conteúdo da Mídia
+        
+        # Remove cabeçalhos que podem causar problemas no proxy
+        excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+        
+        response_headers = [(name, value) for name, value in resp.raw.headers.items()
+                            if name.lower() not in excluded_headers]
+                            
+        # Retorna o conteúdo como stream, mantendo a URL do Vercel
+        return Response(
+            resp.iter_content(chunk_size=1024), 
+            status=resp.status_code,
+            headers=response_headers,
+            content_type=resp.headers.get('Content-Type')
+        )
 
     except SignatureExpired:
         return jsonify({"erro": "Acesso negado. O link expirou (4 horas)."}), 401
     except BadTimeSignature:
         return jsonify({"erro": "Acesso negado. O token é inválido ou foi adulterado."}), 401
+    except requests.exceptions.RequestException as e:
+         return jsonify({"erro": f"Erro ao conectar com a fonte de mídia: {str(e)}"}), 503
     except Exception as e:
         return jsonify({"erro": f"Erro interno ao validar o link: {str(e)}"}), 500
+
+# --- ROTAS DE LISTAGEM GERAL (MANTIDAS) ---
+@app.route('/', methods=['GET'])
+@require_api_token
+def get_all_content_base():
+    return get_all_content()
+
+@app.route('/categorias', methods=['GET'])
+@require_api_token
+def get_all_categories_base():
+    return get_all_categories()
