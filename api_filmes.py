@@ -4,6 +4,7 @@ from unidecode import unidecode
 from functools import wraps
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature 
 import time
+from urllib.parse import unquote # <--- IMPORTANTE: Importação da função de decodificação URL
 
 # --- Variáveis Globais de Segurança e Configuração ---
 
@@ -130,8 +131,11 @@ def get_content_by_title(titulo_busca):
     """
     Busca e retorna detalhes do conteúdo pelo título, REMOVENDO os links de mídia.
     """
-    # Normaliza o termo de busca para minúsculas, sem acentos e substitui '+' por espaço
-    termo_busca_normalizado = unidecode(titulo_busca).strip().lower().replace('+', ' ')
+    # NOVO: 1. Decodifica a URL para tratar %C3%A7 em 'ç'
+    titulo_busca_decoded = unquote(titulo_busca)
+    
+    # 2. Normaliza para minúsculas, sem acentos e substitui '+' por espaço
+    termo_busca_normalizado = unidecode(titulo_busca_decoded).strip().lower().replace('+', ' ')
     
     resultados = []
     for i, filme in enumerate(FILMES):
@@ -148,7 +152,7 @@ def get_content_by_title(titulo_busca):
             resultados.append(filme_filtrado)
 
     if not resultados:
-        # INCLUSÃO DA LINHA DE DEBUG:
+        # A LINHA DE DEBUG AGORA DEVE MOSTRAR O VALOR CORRETO (ex: premonicao 6)
         return jsonify({
             "mensagem": f"Nenhum conteúdo encontrado para o título: {titulo_busca}",
             "termo_normalizado_usado": termo_busca_normalizado, 
@@ -165,7 +169,9 @@ def generate_player_link_by_title(titulo_busca):
     """
     Busca o filme pelo título e gera o link temporário de 4 horas para o player.
     """
-    termo_busca_normalizado = unidecode(titulo_busca).strip().lower().replace('+', ' ')
+    # NOVO: 1. Decodifica a URL para garantir que o termo de busca é limpo
+    titulo_busca_decoded = unquote(titulo_busca)
+    termo_busca_normalizado = unidecode(titulo_busca_decoded).strip().lower().replace('+', ' ')
     
     filme_encontrado = None
     filme_id = -1
