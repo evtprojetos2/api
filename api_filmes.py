@@ -85,42 +85,41 @@ def require_api_token(f):
             
     return decorated
 
-# --- ROTAS DE LISTAGEM E CATEGORIAS (CORRIGIDAS) ---
+# --- ROTAS DE LISTAGEM E CATEGORIAS (LIMPAS) ---
 
 @app.route('/', methods=['GET'])
 @require_api_token
 def get_all_content():
-    """Lista todos os filmes com ID e dados filtrados."""
+    """Lista todos os filmes com ID e dados filtrados (saída limpa)."""
     filmes_com_id = []
     for i, filme in enumerate(FILMES):
         filme_filtrado = filter_movie_data(filme)
         filme_filtrado['filme_id'] = i
         filmes_com_id.append(filme_filtrado)
         
+    # Retorna apenas a chave 'filmes'
     return jsonify({
-        "total_filmes": len(FILMES),
         "filmes": filmes_com_id
     })
 
 @app.route('/categorias', methods=['GET'])
 @require_api_token
 def get_all_categories():
-    """Lista todas as categorias capturadas."""
+    """Lista todas as categorias capturadas (saída limpa)."""
     return jsonify({
-        "total_categorias": len(CATEGORIAS_COMPLETAS),
         "categorias": CATEGORIAS_COMPLETAS
     })
     
 @app.route('/<string:categoria_ou_genero>', methods=['GET'])
 @require_api_token
 def get_content_by_category(categoria_ou_genero):
-    """Filtra por gênero. Depende da variável SPLIT_CHAR."""
+    """Filtra por gênero (saída limpa)."""
     termo_normalizado = unidecode(categoria_ou_genero).strip().lower()
     resultados = []
     
     for i, filme in enumerate(FILMES):
         generos_filme = filme.get('generos', '')
-        # Se SPLIT_CHAR estiver errado, esta linha falha na busca.
+        # Certifique-se de que SPLIT_CHAR está correto!
         generos_norm_filme = [unidecode(g).strip().lower() for g in generos_filme.split(SPLIT_CHAR)]
         
         if termo_normalizado in generos_norm_filme:
@@ -129,20 +128,22 @@ def get_content_by_category(categoria_ou_genero):
             resultados.append(filme_filtrado)
 
     if not resultados:
+        # Mantém a mensagem de erro clara
         return jsonify({
             "mensagem": f"Nenhum conteúdo encontrado para: {categoria_ou_genero}",
             "filmes": []
         }), 404
         
-    return jsonify({"categoria_pesquisada": categoria_ou_genero, "total_encontrado": len(resultados), "filmes": resultados})
+    # Retorna apenas a chave 'filmes'
+    return jsonify({"filmes": resultados})
 
 
-# --- ROTAS DE BUSCA POR TÍTULO (JÁ FUNCIONANDO) ---
+# --- ROTAS DE BUSCA POR TÍTULO (LIMPAS) ---
 
 @app.route('/titulo/<string:titulo_busca>', methods=['GET'])
 @require_api_token
 def get_content_by_title(titulo_busca):
-    """Busca por título. Lógica de decodificação e normalização."""
+    """Busca por título (saída limpa)."""
     titulo_busca_decoded = unquote(titulo_busca)
     termo_busca_normalizado = unidecode(titulo_busca_decoded).strip().lower().replace('+', ' ')
     
@@ -157,15 +158,16 @@ def get_content_by_title(titulo_busca):
             resultados.append(filme_filtrado)
 
     if not resultados:
+        # Mantém a mensagem de erro clara
         return jsonify({
             "mensagem": f"Nenhum conteúdo encontrado para o título: {titulo_busca}",
-            "termo_normalizado_usado": termo_busca_normalizado, 
             "filmes": []
         }), 404
         
-    return jsonify({"titulo_pesquisado": titulo_busca, "total_encontrado": len(resultados), "filmes": resultados})
+    # Retorna apenas a chave 'filmes'
+    return jsonify({"filmes": resultados})
 
-# --- ROTA DE PLAYER POR TÍTULO (JÁ FUNCIONANDO) ---
+# --- ROTA DE PLAYER POR TÍTULO (MANTIDA) ---
 
 @app.route('/titulo/<string:titulo_busca>/player', methods=['GET'])
 @require_api_token
@@ -197,6 +199,7 @@ def generate_player_link_by_title(titulo_busca):
     base_url = request.url_root.rstrip('/')
     link_temporario = f"{base_url}/player_proxy/{filme_id}?temp_token={temp_token}"
     
+    # Esta rota retorna status e detalhes do link, não uma lista, então mantém o formato original.
     return jsonify({
         "status": "sucesso",
         "filme": filme_encontrado['titulo'],
@@ -204,7 +207,7 @@ def generate_player_link_by_title(titulo_busca):
         "expira_em_segundos": TEMPO_EXPIRACAO_LINK
     })
     
-# --- ROTA DE PROXY (JÁ FUNCIONANDO) ---
+# --- ROTA DE PROXY (MANTIDA) ---
 
 @app.route('/player_proxy/<int:filme_id>', methods=['GET'])
 def player_proxy(filme_id):
