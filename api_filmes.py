@@ -111,10 +111,13 @@ def get_all_content():
 @app.route('/categorias', methods=['GET'])
 @require_api_token
 def get_all_categories():
-    """Lista todas as categorias."""
-    return jsonify({
-        "categorias": CATEGORIAS_COMPLETAS
-    })
+    """
+    Lista todas as categorias, retornando um Array JSON de objetos no formato [{"cat": "nome_categoria"}].
+    """
+    # MODIFICAÇÃO: Converte a lista simples em uma lista de objetos {"cat": ...}
+    categorias_formatadas = [{"cat": c} for c in CATEGORIAS_COMPLETAS]
+    
+    return jsonify(categorias_formatadas)
     
 @app.route('/<string:categoria_ou_genero>', methods=['GET'])
 @require_api_token
@@ -188,7 +191,7 @@ def get_content_by_year(ano_busca):
         
     return jsonify(resultados)
 
-# --- ROTA DE PLAYER (AGORA RETORNA ARRAY JSON) ---
+# --- ROTA DE PLAYER (RETORNA ARRAY JSON) ---
 
 @app.route('/titulo/<string:titulo_busca>/player', methods=['GET'])
 @require_api_token
@@ -355,6 +358,18 @@ DOCUMENTATION_HTML = """
 </pre>
             </div>
             
+            <h3>Categorias (Array de Objetos)</h3>
+            <div class="schema">
+<pre>
+[ 
+  {"cat": "netflix"}, 
+  {"cat": "discovery"}, 
+  {"cat": "4k"}, 
+  // ...
+]
+</pre>
+            </div>
+            
             <h3>Resposta de Player (Array Consistente)</h3>
             <div class="schema">
 <pre>
@@ -404,7 +419,7 @@ DOCUMENTATION_HTML = """
                     <tr>
                         <td><span class="method get">GET</span></td>
                         <td><span class="path">/categorias</span></td>
-                        <td>Lista todas as categorias/gêneros.</td>
+                        <td>Lista todas as categorias/gêneros (Retorna Array de Objetos <code>[{"cat": ...}]</code>).</td>
                         <td>Nenhum</td>
                     </tr>
                     <tr>
