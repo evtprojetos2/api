@@ -85,27 +85,25 @@ def require_api_token(f):
             
     return decorated
 
-# --- ROTAS DE LISTAGEM E CATEGORIAS (LIMPAS) ---
+# --- ROTAS DE LISTAGEM E CATEGORIAS (SAÍDA LIMPA: ARRAY DIRETO) ---
 
 @app.route('/', methods=['GET'])
 @require_api_token
 def get_all_content():
-    """Lista todos os filmes com ID e dados filtrados (saída limpa)."""
+    """Lista todos os filmes com ID e dados filtrados (retorna um array direto)."""
     filmes_com_id = []
     for i, filme in enumerate(FILMES):
         filme_filtrado = filter_movie_data(filme)
         filme_filtrado['filme_id'] = i
         filmes_com_id.append(filme_filtrado)
         
-    # Retorna apenas a chave 'filmes'
-    return jsonify({
-        "filmes": filmes_com_id
-    })
+    # Retorna o array de filmes diretamente
+    return jsonify(filmes_com_id)
 
 @app.route('/categorias', methods=['GET'])
 @require_api_token
 def get_all_categories():
-    """Lista todas as categorias capturadas (saída limpa)."""
+    """Lista todas as categorias (mantém o objeto para contexto)."""
     return jsonify({
         "categorias": CATEGORIAS_COMPLETAS
     })
@@ -113,13 +111,12 @@ def get_all_categories():
 @app.route('/<string:categoria_ou_genero>', methods=['GET'])
 @require_api_token
 def get_content_by_category(categoria_ou_genero):
-    """Filtra por gênero (saída limpa)."""
+    """Filtra por gênero (retorna um array direto)."""
     termo_normalizado = unidecode(categoria_ou_genero).strip().lower()
     resultados = []
     
     for i, filme in enumerate(FILMES):
         generos_filme = filme.get('generos', '')
-        # Certifique-se de que SPLIT_CHAR está correto!
         generos_norm_filme = [unidecode(g).strip().lower() for g in generos_filme.split(SPLIT_CHAR)]
         
         if termo_normalizado in generos_norm_filme:
@@ -128,22 +125,22 @@ def get_content_by_category(categoria_ou_genero):
             resultados.append(filme_filtrado)
 
     if not resultados:
-        # Mantém a mensagem de erro clara
+        # Erro continua encapsulado para clareza
         return jsonify({
             "mensagem": f"Nenhum conteúdo encontrado para: {categoria_ou_genero}",
             "filmes": []
         }), 404
         
-    # Retorna apenas a chave 'filmes'
-    return jsonify({"filmes": resultados})
+    # Retorna o array de resultados diretamente
+    return jsonify(resultados)
 
 
-# --- ROTAS DE BUSCA POR TÍTULO (LIMPAS) ---
+# --- ROTAS DE BUSCA POR TÍTULO (SAÍDA LIMPA: ARRAY DIRETO) ---
 
 @app.route('/titulo/<string:titulo_busca>', methods=['GET'])
 @require_api_token
 def get_content_by_title(titulo_busca):
-    """Busca por título (saída limpa)."""
+    """Busca por título (retorna um array direto)."""
     titulo_busca_decoded = unquote(titulo_busca)
     termo_busca_normalizado = unidecode(titulo_busca_decoded).strip().lower().replace('+', ' ')
     
@@ -158,14 +155,14 @@ def get_content_by_title(titulo_busca):
             resultados.append(filme_filtrado)
 
     if not resultados:
-        # Mantém a mensagem de erro clara
+        # Erro continua encapsulado para clareza
         return jsonify({
             "mensagem": f"Nenhum conteúdo encontrado para o título: {titulo_busca}",
             "filmes": []
         }), 404
         
-    # Retorna apenas a chave 'filmes'
-    return jsonify({"filmes": resultados})
+    # Retorna o array de resultados diretamente
+    return jsonify(resultados)
 
 # --- ROTA DE PLAYER POR TÍTULO (MANTIDA) ---
 
@@ -199,7 +196,7 @@ def generate_player_link_by_title(titulo_busca):
     base_url = request.url_root.rstrip('/')
     link_temporario = f"{base_url}/player_proxy/{filme_id}?temp_token={temp_token}"
     
-    # Esta rota retorna status e detalhes do link, não uma lista, então mantém o formato original.
+    # Esta rota retorna status e detalhes do link, mantendo o encapsulamento
     return jsonify({
         "status": "sucesso",
         "filme": filme_encontrado['titulo'],
