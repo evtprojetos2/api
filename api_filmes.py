@@ -1,11 +1,11 @@
 import json
-from flask import Flask, jsonify, request, redirect, Response # 'Response' é novo
+from flask import Flask, jsonify, request, redirect, Response
 from unidecode import unidecode
 from functools import wraps
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature 
 import time
 from urllib.parse import unquote 
-import requests # <--- IMPORTANTE: Usado para o Proxy de Conteúdo
+import requests 
 
 # --- Variáveis Globais de Segurança e Configuração ---
 
@@ -20,7 +20,7 @@ SECRET_KEY_ASSINATURA = "sua_chave_secreta_para_assinatura_de_links_XYZ"
 signer = URLSafeTimedSerializer(SECRET_KEY_ASSINATURA, salt='media-access-salt')
 
 # Defina o caractere que separa os gêneros no seu 'filmes_capturados.json'
-SPLIT_CHAR = ',' # ATUALIZE para ';' ou '|' se for o caso
+SPLIT_CHAR = ',' # <-- VERIFIQUE SE ESTE CARACTERE É O CORRETO NO SEU JSON!
 # ------------------------------------------------------------------------
 
 # Nomes dos arquivos de dados
@@ -71,7 +71,6 @@ CATEGORIAS_NORM = {
 # --- Decorador de Autenticação ---
 
 def require_api_token(f):
-    """Verifica se um token de acesso à API está na lista de tokens válidos."""
     @wraps(f)
     def decorated(*args, **kwargs):
         auth_header = request.headers.get('Authorization')
@@ -86,14 +85,64 @@ def require_api_token(f):
             
     return decorated
 
-# --- ROTAS DE BUSCA POR TÍTULO ---
+# --- ROTAS DE LISTAGEM E CATEGORIAS (CORRIGIDAS) ---
+
+@app.route('/', methods=['GET'])
+@require_api_token
+def get_all_content():
+    """Lista todos os filmes com ID e dados filtrados."""
+    filmes_com_id = []
+    for i, filme in enumerate(FILMES):
+        filme_filtrado = filter_movie_data(filme)
+        filme_filtrado['filme_id'] = i
+        filmes_com_id.append(filme_filtrado)
+        
+    return jsonify({
+        "total_filmes": len(FILMES),
+        "filmes": filmes_com_id
+    })
+
+@app.route('/categorias', methods=['GET'])
+@require_api_token
+def get_all_categories():
+    """Lista todas as categorias capturadas."""
+    return jsonify({
+        "total_categorias": len(CATEGORIAS_COMPLETAS),
+        "categorias": CATEGORIAS_COMPLETAS
+    })
+    
+@app.route('/<string:categoria_ou_genero>', methods=['GET'])
+@require_api_token
+def get_content_by_category(categoria_ou_genero):
+    """Filtra por gênero. Depende da variável SPLIT_CHAR."""
+    termo_normalizado = unidecode(categoria_ou_genero).strip().lower()
+    resultados = []
+    
+    for i, filme in enumerate(FILMES):
+        generos_filme = filme.get('generos', '')
+        # Se SPLIT_CHAR estiver errado, esta linha falha na busca.
+        generos_norm_filme = [unidecode(g).strip().lower() for g in generos_filme.split(SPLIT_CHAR)]
+        
+        if termo_normalizado in generos_norm_filme:
+            filme_filtrado = filter_movie_data(filme)
+            filme_filtrado['filme_id'] = i
+            resultados.append(filme_filtrado)
+
+    if not resultados:
+        return jsonify({
+            "mensagem": f"Nenhum conteúdo encontrado para: {categoria_ou_genero}",
+            "filmes": []
+        }), 404
+        
+    return jsonify({"categoria_pesquisada": categoria_ou_genero, "total_encontrado": len(resultados), "filmes": resultados})
+
+
+# --- ROTAS DE BUSCA POR TÍTULO (JÁ FUNCIONANDO) ---
 
 @app.route('/titulo/<string:titulo_busca>', methods=['GET'])
 @require_api_token
 def get_content_by_title(titulo_busca):
-    """
-    Busca e retorna detalhes do conteúdo pelo título, REMOVENDO os links de mídia.
-    """
+    """Busca por título. Lógica de decodificação e normalização."""
     titulo_busca_decoded = unquote(titulo_busca)
     termo_busca_normalizado = unidecode(titulo_busca_decoded).strip().lower().replace('+', ' ')
     
@@ -116,15 +165,12 @@ def get_content_by_title(titulo_busca):
         
     return jsonify({"titulo_pesquisado": titulo_busca, "total_encontrado": len(resultados), "filmes": resultados})
 
-# --- ROTA DE PLAYER POR TÍTULO (Geração do Token Temporário) ---
+# --- ROTA DE PLAYER POR TÍTULO (JÁ FUNCIONANDO) ---
 
 @app.route('/titulo/<string:titulo_busca>/player', methods=['GET'])
 @require_api_token
 def generate_player_link_by_title(titulo_busca):
-    """
-    Busca o filme pelo título e gera o link temporário de 4 horas para o player.
-    Retorna a URL completa e mascarada.
-    """
+    """Gera o link temporário de 4 horas (URL completa)."""
     titulo_busca_decoded = unquote(titulo_busca)
     termo_busca_normalizado = unidecode(titulo_busca_decoded).strip().lower().replace('+', ' ')
     
@@ -145,37 +191,31 @@ def generate_player_link_by_title(titulo_busca):
     if not url_sensivel:
         return jsonify({"erro": f"Filme '{filme_encontrado['titulo']}' não possui URL de mídia (url_m3u8_ou_mp4)."}), 500
 
-    # Gera o token temporário (4 horas de validade implícita)
     payload = url_sensivel
     temp_token = signer.dumps(payload)
     
-    # Constrói o link ABSOLUTO e completo
     base_url = request.url_root.rstrip('/')
     link_temporario = f"{base_url}/player_proxy/{filme_id}?temp_token={temp_token}"
     
     return jsonify({
         "status": "sucesso",
         "filme": filme_encontrado['titulo'],
-        "link_temporario": link_temporario, # URL COMPLETA
+        "link_temporario": link_temporario, 
         "expira_em_segundos": TEMPO_EXPIRACAO_LINK
     })
     
-# --- ROTA DE PROXY (Validação e Entrega de Conteúdo) ---
+# --- ROTA DE PROXY (JÁ FUNCIONANDO) ---
 
 @app.route('/player_proxy/<int:filme_id>', methods=['GET'])
 def player_proxy(filme_id):
-    """
-    Valida o token temporário, atua como proxy e serve o stream de mídia.
-    """
+    """Valida o token e serve o stream de mídia (máscara de URL)."""
     temp_token = request.args.get('temp_token')
     if not temp_token:
         return jsonify({"erro": "Acesso negado. Token temporário ausente."}), 401
         
     try:
-        # 1. Validação do Token (a lógica de 4 horas é mantida)
         url_original = signer.loads(temp_token, max_age=TEMPO_EXPIRACAO_LINK)
 
-        # Verificação de segurança: Checa se o ID do filme bate com a URL original
         try:
              filme_real = FILMES[filme_id]
              if url_original != filme_real.get('url_m3u8_ou_mp4'):
@@ -183,30 +223,22 @@ def player_proxy(filme_id):
         except IndexError:
              return jsonify({"erro": "ID de filme no proxy inválido."}), 404
              
-        # 2. Atuar como Proxy (Busca e Entrega)
-        
-        # Copia cabeçalhos do cliente (ex: Range para streaming)
         headers = {key: value for (key, value) in request.headers if key != 'Host'}
         
-        # Faz a requisição para a URL de mídia real
         resp = requests.request(
             method=request.method,
             url=url_original,
             headers=headers,
             data=request.get_data(),
-            stream=True, # IMPORTANTE: Para streaming eficiente
+            stream=True, 
             allow_redirects=False
         )
         
-        # 3. Retorna o Conteúdo da Mídia
-        
-        # Remove cabeçalhos que podem causar problemas no proxy
         excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
         
         response_headers = [(name, value) for name, value in resp.raw.headers.items()
                             if name.lower() not in excluded_headers]
                             
-        # Retorna o conteúdo como stream, mantendo a URL do Vercel
         return Response(
             resp.iter_content(chunk_size=1024), 
             status=resp.status_code,
@@ -223,7 +255,7 @@ def player_proxy(filme_id):
     except Exception as e:
         return jsonify({"erro": f"Erro interno ao validar o link: {str(e)}"}), 500
 
-# --- ROTAS DE LISTAGEM GERAL (MANTIDAS) ---
+# Rotas base para compatibilidade
 @app.route('/', methods=['GET'])
 @require_api_token
 def get_all_content_base():
