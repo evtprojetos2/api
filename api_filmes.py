@@ -50,16 +50,15 @@ def load_tokens():
 
 def filter_movie_data(movie: dict) -> dict:
     """
-    Remove chaves sensíveis/internas (EXCETO url_m3u8_ou_mp4), LIMPA AS URLS, e 
-    converte o valor da chave 'generos' para MAIÚSCULO.
+    Remove chaves sensíveis/internas (EXCETO url_m3u8_ou_mp4), LIMPA AS URLS, 
+    cria a chave 'tipo' baseada na URL, e converte o valor de 'generos' para MAIÚSCULO.
     """
-    # [MODIFICAÇÃO AQUI] url_m3u8_ou_mp4 foi removida da lista de exclusão.
     EXCLUDE_KEYS = ['url_player_pagina', 'url_filme']
     URL_KEYS_TO_CLEAN = ['url_capa', 'url_poster'] 
     
     filtered_movie = movie.copy()
     
-    # 1. Remove chaves sensíveis
+    # 1. Remove chaves sensíveis (url_m3u8_ou_mp4 é mantida)
     for key in EXCLUDE_KEYS:
         filtered_movie.pop(key, None)
         
@@ -72,6 +71,23 @@ def filter_movie_data(movie: dict) -> dict:
     # 3. Garante que o valor de 'generos' venha em MAIÚSCULO
     if 'generos' in filtered_movie and isinstance(filtered_movie['generos'], str):
         filtered_movie['generos'] = filtered_movie['generos'].upper()
+
+    # 4. [ÚLTIMA MODIFICAÇÃO] Cria a chave "tipo" baseada na URL de mídia
+    url_midia = filtered_movie.get('url_m3u8_ou_mp4', '').lower()
+    tipo = 'desconhecido'
+    
+    if url_midia:
+        if 'm3u8' in url_midia:
+            tipo = 'm3u8'
+        elif 'm3u' in url_midia:
+            tipo = 'm3u'
+        elif 'mp4' in url_midia:
+            tipo = 'mp4'
+        elif 'drive.google' in url_midia or 'driver' in url_midia:
+            tipo = 'driver' 
+    
+    # Adiciona a nova chave "tipo" ao objeto filtrado
+    filtered_movie['tipo'] = tipo
             
     return filtered_movie
 
@@ -357,7 +373,8 @@ DOCUMENTATION_HTML = """
     "url_capa": "string (URL limpa)",
     "url_poster": "string (URL limpa)",
     "views": "string (Ex: 8,990)",
-    "url_m3u8_ou_mp4": "string (URL da Mídia)" 
+    "url_m3u8_ou_mp4": "string (URL da Mídia)",
+    "tipo": "string (mp4, m3u8, driver, etc.)" <-- NOVO CAMPO
   },
   ...
 ]
