@@ -51,7 +51,7 @@ def load_tokens():
 def filter_movie_data(movie: dict) -> dict:
     """
     Remove chaves sensíveis/internas e LIMPA AS URLS (url_capa e url_poster)
-    removendo as aspas simples extras.
+    removendo as aspas simples extras (Ex: 'http://link' -> http://link).
     """
     EXCLUDE_KEYS = ['url_player_pagina', 'url_filme', 'url_m3u8_ou_mp4']
     URL_KEYS_TO_CLEAN = ['url_capa', 'url_poster'] 
@@ -94,7 +94,7 @@ def require_api_token(f):
             
     return decorated
 
-# --- ROTAS DE LISTAGEM E BUSCA (ARRAY DIRETO) ---
+# --- ROTAS DE LISTAGEM E BUSCA (ARRAY JSON) ---
 
 @app.route('/', methods=['GET'])
 @require_api_token
@@ -111,7 +111,7 @@ def get_all_content():
 @app.route('/categorias', methods=['GET'])
 @require_api_token
 def get_all_categories():
-    """Lista todas as categorias (mantém o objeto para contexto)."""
+    """Lista todas as categorias."""
     return jsonify({
         "categorias": CATEGORIAS_COMPLETAS
     })
@@ -188,12 +188,12 @@ def get_content_by_year(ano_busca):
         
     return jsonify(resultados)
 
-# --- ROTA DE PLAYER POR TÍTULO (MANTIDA) ---
+# --- ROTA DE PLAYER (AGORA RETORNA ARRAY JSON) ---
 
 @app.route('/titulo/<string:titulo_busca>/player', methods=['GET'])
 @require_api_token
 def generate_player_link_by_title(titulo_busca):
-    """Gera o link temporário de 4 horas (URL completa)."""
+    """Gera o link temporário de 4 horas (URL completa), retornando um ARRAY JSON."""
     titulo_busca_decoded = unquote(titulo_busca)
     termo_busca_normalizado = unidecode(titulo_busca_decoded).strip().lower().replace('+', ' ')
     
@@ -220,12 +220,15 @@ def generate_player_link_by_title(titulo_busca):
     base_url = request.url_root.rstrip('/')
     link_temporario = f"{base_url}/player_proxy/{filme_id}?temp_token={temp_token}"
     
-    return jsonify({
+    # Resposta encapsulada em uma lista []
+    resposta_player = [{
         "status": "sucesso",
         "filme": filme_encontrado['titulo'],
         "link_temporario": link_temporario, 
         "expira_em_segundos": TEMPO_EXPIRACAO_LINK
-    })
+    }]
+    
+    return jsonify(resposta_player) 
     
 # --- ROTA DE PROXY (MANTIDA) ---
 
@@ -278,7 +281,7 @@ def player_proxy(filme_id):
     except Exception as e:
         return jsonify({"erro": f"Erro interno ao validar o link: {str(e)}"}), 500
 
-# --- ROTA DE DOCUMENTAÇÃO (Estilo FastAPI/Swagger) ---
+# --- ROTA DE DOCUMENTAÇÃO ---
 
 DOCUMENTATION_HTML = """
 <!DOCTYPE html>
@@ -343,8 +346,8 @@ DOCUMENTATION_HTML = """
     "imdb": "string (IMDbX.X)",
     "sinopse": "string",
     "titulo": "string",
-    "url_capa": "string (URL limpa, sem aspas)",
-    "url_poster": "string (URL limpa, sem aspas)",
+    "url_capa": "string (URL limpa)",
+    "url_poster": "string (URL limpa)",
     "views": "string (Ex: 8,990)"
   },
   ...
@@ -352,7 +355,21 @@ DOCUMENTATION_HTML = """
 </pre>
             </div>
             
-            <h3>Erro (Resposta Padrão)</h3>
+            <h3>Resposta de Player (Array Consistente)</h3>
+            <div class="schema">
+<pre>
+[
+  {
+    "status": "sucesso",
+    "filme": "string (Título)",
+    "link_temporario": "string (URL completa do Proxy)",
+    "expira_em_segundos": "integer"
+  }
+]
+</pre>
+            </div>
+            
+             <h3>Erro (Resposta Padrão)</h3>
             <div class="schema">
 <pre>
 {
@@ -429,8 +446,8 @@ DOCUMENTATION_HTML = """
                     <tr>
                         <td><span class="method get">GET</span></td>
                         <td><span class="path">/titulo/{titulo}/player</span></td>
-                        <td><strong>Gera o link temporário de streaming.</strong></td>
-                        <td>Objeto JSON (<code>link_temporario</code>)</td>
+                        <td><strong>Gera o link temporário de streaming (Retorna Array JSON).</strong></td>
+                        <td>Array JSON (<code>[{...}]</code>)</td>
                     </tr>
                     <tr>
                         <td><span class="method get">GET</span></td>
