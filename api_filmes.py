@@ -50,13 +50,24 @@ def load_tokens():
 
 def filter_movie_data(movie: dict) -> dict:
     """
-    Remove chaves sensíveis/internas do objeto do filme antes de retornar na rota de detalhes.
+    Remove chaves sensíveis/internas e LIMPA AS URLS (url_capa e url_poster)
+    removendo as aspas simples extras.
     """
     EXCLUDE_KEYS = ['url_player_pagina', 'url_filme', 'url_m3u8_ou_mp4']
+    URL_KEYS_TO_CLEAN = ['url_capa', 'url_poster'] 
     
     filtered_movie = movie.copy()
+    
+    # 1. Remove chaves sensíveis
     for key in EXCLUDE_KEYS:
         filtered_movie.pop(key, None)
+        
+    # 2. Limpa as aspas simples extras das URLs
+    for key in URL_KEYS_TO_CLEAN:
+        if key in filtered_movie and isinstance(filtered_movie[key], str):
+            # O método .strip("'") remove a aspa simples no início e no fim da string
+            filtered_movie[key] = filtered_movie[key].strip("'")
+            
     return filtered_movie
 
 # Carregamento global na inicialização
@@ -332,8 +343,8 @@ DOCUMENTATION_HTML = """
     "imdb": "string (IMDbX.X)",
     "sinopse": "string",
     "titulo": "string",
-    "url_capa": "string (URL)",
-    "url_poster": "string (URL)",
+    "url_capa": "string (URL limpa, sem aspas)",
+    "url_poster": "string (URL limpa, sem aspas)",
     "views": "string (Ex: 8,990)"
   },
   ...
