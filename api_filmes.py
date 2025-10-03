@@ -50,8 +50,8 @@ def load_tokens():
 
 def filter_movie_data(movie: dict) -> dict:
     """
-    Remove chaves sensíveis/internas e LIMPA AS URLS (url_capa e url_poster)
-    removendo as aspas simples extras (Ex: 'http://link' -> http://link).
+    Remove chaves sensíveis/internas, LIMPA AS URLS, e 
+    converte o valor da chave 'generos' para MAIÚSCULO.
     """
     EXCLUDE_KEYS = ['url_player_pagina', 'url_filme', 'url_m3u8_ou_mp4']
     URL_KEYS_TO_CLEAN = ['url_capa', 'url_poster'] 
@@ -67,6 +67,10 @@ def filter_movie_data(movie: dict) -> dict:
         if key in filtered_movie and isinstance(filtered_movie[key], str):
             # O método .strip("'") remove a aspa simples no início e no fim da string
             filtered_movie[key] = filtered_movie[key].strip("'")
+            
+    # 3. [MODIFICAÇÃO SOLICITADA] Garante que o valor de 'generos' venha em MAIÚSCULO
+    if 'generos' in filtered_movie and isinstance(filtered_movie['generos'], str):
+        filtered_movie['generos'] = filtered_movie['generos'].upper()
             
     return filtered_movie
 
@@ -345,7 +349,7 @@ DOCUMENTATION_HTML = """
     "classificacao": "string",
     "duracao": "string",
     "filme_id": "integer",
-    "generos": "string (separados por vírgula)",
+    "generos": "string (separados por vírgula) - SEMPRE EM MAIÚSCULO",
     "imdb": "string (IMDbX.X)",
     "sinopse": "string",
     "titulo": "string",
